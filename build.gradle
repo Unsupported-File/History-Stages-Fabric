@@ -7,6 +7,26 @@ version = project.mod_version
 group = project.maven_group
 
 repositories {
+	mavenCentral()
+	maven {
+		name = "Fabric"
+		url = "https://maven.fabricmc.net/"
+	}
+	maven {
+		name = "Modrinth"
+		url = "https://api.modrinth.com/maven"
+	}
+	maven {
+		name = "CurseMaven"
+		url = "https://www.cursemaven.com"
+		content {
+			includeGroup "curse.maven"
+		}
+	}
+	maven {
+		name = "Terraformers"
+		url = "https://maven.terraformersmc.com/releases"
+	}
 }
 
 loom {
@@ -31,9 +51,9 @@ dependencies {
 	mappings loom.officialMojangMappings()
 	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
-	modCompileOnly files("C:/Users/Brend/.gradle/caches/modules-2/files-2.1/maven.modrinth/jade/11.13.1+fabric/511ff9de2b9322089e769433f8613f3ac16bdade/jade-11.13.1+fabric.jar")
-	modCompileOnly files("C:/Users/Brend/.gradle/caches/modules-2/files-2.1/curse.maven/jei-238222/5772965/21cbc121dc37cefad4994f4987951cb6babcb42f/jei-238222-5772965.jar")
-	modCompileOnly files("C:/Users/Brend/.gradle/caches/modules-2/files-2.1/dev.emi/emi-fabric/1.1.22+1.20.1/9758612bb346704a1b195488bb1888c01a391045/emi-fabric-1.1.22+1.20.1-api.jar")
+	modCompileOnly "maven.modrinth:jade:11.13.1+fabric"
+	modCompileOnly "curse.maven:jei-238222:5772965"
+	modCompileOnly "dev.emi:emi-fabric:1.1.22+1.20.1:api"
 }
 
 processResources {
