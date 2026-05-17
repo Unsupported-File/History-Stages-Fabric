@@ -61,6 +61,10 @@ public class ResearchPedestalMenu extends AbstractContainerMenu {
         return blockEntity;
     }
 
+    public BlockPos getBlockPos() {
+        return blockEntity.getBlockPos();
+    }
+
     @Override
     public boolean stillValid(Player player) {
         return stillValid(net.minecraft.world.inventory.ContainerLevelAccess.create(level, blockEntity.getBlockPos()), player, ModBlocks.RESEARCH_PEDESTAL);

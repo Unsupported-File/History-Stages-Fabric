@@ -5,7 +5,6 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import net.bananemdnsa.historystages.Config;
 import net.bananemdnsa.historystages.data.StageEntry;
 import net.bananemdnsa.historystages.data.StageManager;
-import net.bananemdnsa.historystages.events.StructureLockEvents;
 import net.bananemdnsa.historystages.network.Networking;
 import net.bananemdnsa.historystages.util.IndividualStageData;
 import net.bananemdnsa.historystages.util.StageData;
@@ -89,15 +88,7 @@ public final class StageCommand {
                                     Component.literal("Reloaded " + StageManager.getStages().size() + " global and "
                                             + StageManager.getIndividualStages().size() + " individual stages."), true);
                             return 1;
-                        }))
-                .then(Commands.literal("debug")
-                        .then(Commands.literal("structure")
-                                .executes(context -> debugStructure(context.getSource())))
-                        .then(Commands.literal("nbt")
-                                .then(Commands.literal("preset")
-                                        .executes(context -> DebugNbtCommand.handlePreset(context.getSource())))
-                                .then(Commands.literal("custom")
-                                        .executes(context -> DebugNbtCommand.handleCustom(context.getSource()))))));
+                        })));
     }
 
     private static int listGlobal(CommandSourceStack source) {
@@ -298,31 +289,6 @@ public final class StageCommand {
         for (String value : values) {
             source.sendSuccess(() -> Component.literal(" - " + value), false);
         }
-    }
-
-    private static int debugStructure(CommandSourceStack source) {
-        ServerPlayer player;
-        try {
-            player = source.getPlayerOrException();
-        } catch (Exception e) {
-            source.sendFailure(Component.literal("This command can only be run by a player."));
-            return 0;
-        }
-
-        var pos = player.blockPosition();
-        var holders = StructureLockEvents.collectStructureHoldersAt(player.serverLevel(), pos);
-        source.sendSuccess(() -> Component.literal("--- Structures At " + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + " ---"), false);
-        if (holders.isEmpty()) {
-            source.sendSuccess(() -> Component.literal("(not inside any structure)"), false);
-            return 1;
-        }
-
-        for (var holder : holders) {
-            String id = holder.unwrapKey().map(key -> key.location().toString()).orElse("<unknown>");
-            source.sendSuccess(() -> Component.literal(" - " + id), false);
-            holder.tags().forEach(tag -> source.sendSuccess(() -> Component.literal("   # " + tag.location()), false));
-        }
-        return 1;
     }
 
     private static List<MapEntry> getSortedEntries(Map<String, StageEntry> entries) {

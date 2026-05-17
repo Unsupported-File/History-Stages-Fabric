@@ -26,7 +26,7 @@ public abstract class AnvilMenuMixin {
         }
 
         ItemStack right = accessor.historystages$getInputSlots().getItem(1);
-        if (!right.isEmpty() && StageLockHelper.isItemLockedForPlayer(right, serverPlayer)) {
+        if (!right.isEmpty() && StageLockHelper.isActionLockedForPlayer(right, serverPlayer.getUUID(), "use")) {
             accessor.historystages$getResultSlots().setItem(0, ItemStack.EMPTY);
         }
     }

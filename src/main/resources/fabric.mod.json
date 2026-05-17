@@ -3,7 +3,7 @@
 	"id": "historystages",
 	"version": "${version}",
 	"name": "History Stages",
-	"description": "History Stages for Fabric 1.21.1.",
+	"description": "Guide your players through the ages. Lock items, recipes, dimensions, mobs, loot, and more behind custom research-based Stages, unlocked server-wide or individual through the Research Pedestal with full in-game tooling.",
 	"authors": [
 		"Flix100000",
 		"PixlStudios"
@@ -26,13 +26,16 @@
 		],
 		"emi": [
 			"net.bananemdnsa.historystages.emi.EMIPlugin"
+		],
+		"ftbquests": [
+			"net.bananemdnsa.historystages.ftbquests.FTBQuestsIntegration"
 		]
 	},
 	"mixins": [
 		"historystages.mixins.json"
 	],
 	"depends": {
-		"fabricloader": ">=0.19.2",
+		"fabricloader": ">=0.18.4",
 		"minecraft": "~1.21.1",
 		"java": ">=21",
 		"fabric-api": "*",

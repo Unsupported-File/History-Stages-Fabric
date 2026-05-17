@@ -4,6 +4,8 @@ import net.bananemdnsa.historystages.commands.StageCommand;
 import net.bananemdnsa.historystages.data.StageManager;
 import net.bananemdnsa.historystages.events.GameplayEvents;
 import net.bananemdnsa.historystages.events.MobSpawnLockEvents;
+import net.bananemdnsa.historystages.events.StructureLockEvents;
+import net.bananemdnsa.historystages.ftbquests.OptionalFTBQuestsHooks;
 import net.bananemdnsa.historystages.init.ModBlockEntities;
 import net.bananemdnsa.historystages.init.ModBlocks;
 import net.bananemdnsa.historystages.init.ModCreativeTabs;
@@ -16,6 +18,7 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerWorldEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.network.chat.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +38,8 @@ public class HistoryStagesFabric implements ModInitializer {
         StageManager.load();
         GameplayEvents.register();
         MobSpawnLockEvents.register();
+        StructureLockEvents.register();
+        initOptionalFTBQuests();
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
                 StageCommand.register(dispatcher));
@@ -46,13 +51,17 @@ public class HistoryStagesFabric implements ModInitializer {
         });
 
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+            OptionalFTBQuestsHooks.setServer(server);
             StageManager.validateAgainstRegistries();
             Networking.syncAll(server);
             LOGGER.info("Loaded {} global stages and {} individual stages.",
                     StageManager.getStages().size(), StageManager.getIndividualStages().size());
         });
 
-        ServerLifecycleEvents.SERVER_STOPPING.register(server -> DebugLogger.flushRuntimeBuffer());
+        ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+            OptionalFTBQuestsHooks.clearServer(server);
+            DebugLogger.flushRuntimeBuffer();
+        });
 
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             if (!Config.COMMON.showWelcomeMessage) {
@@ -68,5 +77,19 @@ public class HistoryStagesFabric implements ModInitializer {
             handler.player.sendSystemMessage(Component.literal("  §8(Disable this message in the common config)"));
             handler.player.sendSystemMessage(Component.literal("§8§m                                                §r"));
         });
+    }
+
+    private static void initOptionalFTBQuests() {
+        if (!FabricLoader.getInstance().isModLoaded("ftbquests")) {
+            return;
+        }
+
+        try {
+            Class.forName("net.bananemdnsa.historystages.ftbquests.FTBQuestsIntegration")
+                    .getMethod("init")
+                    .invoke(null);
+        } catch (ReflectiveOperationException exception) {
+            LOGGER.warn("Failed to initialize FTB Quests integration.", exception);
+        }
     }
 }

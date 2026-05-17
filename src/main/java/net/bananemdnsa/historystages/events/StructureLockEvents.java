@@ -7,7 +7,11 @@ import net.bananemdnsa.historystages.util.DebugLogger;
 import net.bananemdnsa.historystages.util.IndividualStageData;
 import net.bananemdnsa.historystages.util.StageData;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
+import net.fabricmc.fabric.api.event.player.UseEntityCallback;
+import net.fabricmc.fabric.api.event.player.UseItemCallback;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
@@ -16,15 +20,33 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.InteractionResultHolder;
 import net.minecraft.world.MenuProvider;
+import net.minecraft.world.item.BedItem;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.AbstractCauldronBlock;
+import net.minecraft.world.level.block.BellBlock;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.SpawnerBlock;
+import net.minecraft.world.level.block.ButtonBlock;
+import net.minecraft.world.level.block.CakeBlock;
+import net.minecraft.world.level.block.ComposterBlock;
+import net.minecraft.world.level.block.DoorBlock;
+import net.minecraft.world.level.block.FenceGateBlock;
+import net.minecraft.world.level.block.JukeboxBlock;
+import net.minecraft.world.level.block.LeverBlock;
+import net.minecraft.world.level.block.NoteBlock;
+import net.minecraft.world.level.block.RespawnAnchorBlock;
+import net.minecraft.world.level.block.TrapDoorBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
+import net.minecraft.world.phys.BlockHitResult;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -53,24 +75,55 @@ public final class StructureLockEvents {
             }
         });
 
+        UseItemCallback.EVENT.register((player, world, hand) -> {
+            ItemStack stack = player.getItemInHand(hand);
+            if (world.isClientSide() || !(player instanceof ServerPlayer serverPlayer)
+                    || !shouldBlockInteraction(serverPlayer)) {
+                return InteractionResultHolder.pass(stack);
+            }
+            if (stack.getItem() instanceof BlockItem) {
+                return InteractionResultHolder.pass(stack);
+            }
+            return InteractionResultHolder.fail(stack);
+        });
+
         UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
-            if (world.isClientSide() || !(player instanceof ServerPlayer serverPlayer) || !isInsideLockedStructure(serverPlayer)) {
+            if (world.isClientSide() || !(player instanceof ServerPlayer serverPlayer)
+                    || !shouldBlockInteraction(serverPlayer)) {
                 return InteractionResult.PASS;
             }
-            BlockState state = world.getBlockState(hitResult.getBlockPos());
-            Block block = state.getBlock();
-            boolean hasGui = block instanceof MenuProvider || world.getBlockEntity(hitResult.getBlockPos()) instanceof MenuProvider;
-            boolean isSpawner = block instanceof SpawnerBlock;
-            if (hasGui || isSpawner) {
+            if (mayPlaceBlockWithoutInteracting(serverPlayer, world, hand, hitResult)) {
+                return InteractionResult.PASS;
+            }
+            return InteractionResult.FAIL;
+        });
+
+        UseEntityCallback.EVENT.register((player, world, hand, entity, hitResult) -> {
+            if (world.isClientSide() || !(player instanceof ServerPlayer serverPlayer)
+                    || !shouldBlockInteraction(serverPlayer)) {
+                return InteractionResult.PASS;
+            }
+            return InteractionResult.FAIL;
+        });
+
+        AttackEntityCallback.EVENT.register((player, world, hand, entity, hitResult) -> {
+            if (!world.isClientSide() && player instanceof ServerPlayer serverPlayer
+                    && shouldBlockInteraction(serverPlayer)) {
                 return InteractionResult.FAIL;
             }
             return InteractionResult.PASS;
         });
+
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> clearPlayer(handler.player.getUUID()));
     }
 
     public static boolean isInsideLockedStructure(ServerPlayer player) {
         PlayerState state = STATE.get(player.getUUID());
         return state != null && !state.cachedLockedStructureIds.isEmpty();
+    }
+
+    public static void clearPlayer(UUID uuid) {
+        STATE.remove(uuid);
     }
 
     private static void tickPlayer(ServerPlayer player) {
@@ -124,7 +177,7 @@ public final class StructureLockEvents {
             holder.tags().forEach(tag -> presentTags.add(tag.location().toString()));
         }
 
-        Set<String> playerStages = IndividualStageData.SERVER_CACHE.getOrDefault(player.getUUID(), Collections.emptySet());
+        Set<String> playerStages = IndividualStageData.get(player.serverLevel()).getUnlockedStages(player.getUUID());
         LinkedHashSet<String> lockedStructures = new LinkedHashSet<>();
         LinkedHashSet<String> lockedStages = new LinkedHashSet<>();
 
@@ -167,7 +220,8 @@ public final class StructureLockEvents {
         String stageName = state.cachedLockedStageIds.isEmpty() ? structureId : resolveStageDisplayName(state.cachedLockedStageIds.getFirst());
         String message = Config.COMMON.structureLockMessageFormat
                 .replace("{structure}", structureId)
-                .replace("{stage}", stageName);
+                .replace("{stage}", stageName)
+                .replace('&', '\u00A7');
         Component component = Component.literal(message);
         if (Config.COMMON.structureLockInChat) {
             player.sendSystemMessage(component);
@@ -176,6 +230,53 @@ public final class StructureLockEvents {
         }
         DebugLogger.runtime("Structure Lock", player.getName().getString(),
                 "Inside locked structure '" + structureId + "' - missing stages: " + state.cachedLockedStageIds);
+    }
+
+    private static boolean shouldBlockInteraction(ServerPlayer player) {
+        if (player.isSpectator()) {
+            return false;
+        }
+        PlayerState state = STATE.get(player.getUUID());
+        if (state == null || state.cachedLockedStructureIds.isEmpty()) {
+            return false;
+        }
+        if (Config.COMMON.structureMessageEnabled && state.messageCooldown <= 0) {
+            state.messageCooldown = 40;
+            sendLockMessage(player, state);
+        }
+        return true;
+    }
+
+    private static boolean mayPlaceBlockWithoutInteracting(ServerPlayer player, Level level, InteractionHand hand,
+                                                           BlockHitResult hitResult) {
+        ItemStack held = player.getItemInHand(hand);
+        if (!(held.getItem() instanceof BlockItem) && !(held.getItem() instanceof BedItem)) {
+            return false;
+        }
+        if (player.isShiftKeyDown()) {
+            return true;
+        }
+        return !isInteractiveBlock(level, hitResult.getBlockPos());
+    }
+
+    private static boolean isInteractiveBlock(Level level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        Block block = state.getBlock();
+        if (state.getMenuProvider(level, pos) != null || level.getBlockEntity(pos) instanceof MenuProvider) {
+            return true;
+        }
+        return block instanceof DoorBlock
+                || block instanceof TrapDoorBlock
+                || block instanceof FenceGateBlock
+                || block instanceof ButtonBlock
+                || block instanceof LeverBlock
+                || block instanceof NoteBlock
+                || block instanceof CakeBlock
+                || block instanceof ComposterBlock
+                || block instanceof BellBlock
+                || block instanceof JukeboxBlock
+                || block instanceof RespawnAnchorBlock
+                || block instanceof AbstractCauldronBlock;
     }
 
     private static String resolveStageDisplayName(String stageId) {

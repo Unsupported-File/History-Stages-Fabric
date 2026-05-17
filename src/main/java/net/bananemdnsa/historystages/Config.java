@@ -14,6 +14,7 @@ import java.util.Map;
 
 public final class Config {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final String DEFAULT_STRUCTURE_LOCK_MESSAGE = "&cYou cannot enter &e{structure}&c yet!";
     private static final Path CONFIG_FILE = FabricLoader.getInstance().getConfigDir()
             .resolve("historystages")
             .resolve("config.json");
@@ -41,6 +42,9 @@ public final class Config {
             }
             if (persisted.client != null) {
                 copyClient(persisted.client, CLIENT);
+            }
+            if (normalizeLegacyStructureDefaults()) {
+                save();
             }
         } catch (IOException ignored) {
         }
@@ -108,7 +112,6 @@ public final class Config {
         to.showIndividualTooltips = from.showIndividualTooltips;
         to.showStageName = from.showStageName;
         to.showAllUntilComplete = from.showAllUntilComplete;
-        to.hideInJei = from.hideInJei;
         to.jadeShowInfo = from.jadeShowInfo;
         to.jadeStageName = from.jadeStageName;
         to.jadeShowAllUntilComplete = from.jadeShowAllUntilComplete;
@@ -124,6 +127,41 @@ public final class Config {
         to.mobShowStagesInChat = from.mobShowStagesInChat;
     }
 
+    private static boolean normalizeLegacyStructureDefaults() {
+        boolean changed = false;
+        if (COMMON.structureDamageEnabled
+                && COMMON.structureDamageInterval == 40
+                && COMMON.structureCheckInterval == 20) {
+            COMMON.structureDamageEnabled = false;
+            COMMON.structureDamageInterval = 20;
+            COMMON.structureCheckInterval = 10;
+            changed = true;
+        }
+
+        String message = COMMON.structureLockMessageFormat;
+        if (message == null || message.isBlank()
+                || message.startsWith("This structure is locked by")
+                || message.contains("{sta_")) {
+            COMMON.structureLockMessageFormat = DEFAULT_STRUCTURE_LOCK_MESSAGE;
+            changed = true;
+        }
+
+        if (COMMON.structureCheckInterval <= 0) {
+            COMMON.structureCheckInterval = 10;
+            changed = true;
+        }
+        if (COMMON.structureDamageInterval <= 0) {
+            COMMON.structureDamageInterval = 20;
+            changed = true;
+        }
+        if (COMMON.structureDamageAmount <= 0.0F) {
+            COMMON.structureDamageAmount = 1.0F;
+            changed = true;
+        }
+
+        return changed;
+    }
+
     private static final class PersistedConfig {
         private final Common common = new Common();
         private final Client client = new Client();
@@ -136,7 +174,6 @@ public final class Config {
                     case "showTooltips" -> CLIENT.showTooltips = parseBool(value, CLIENT.showTooltips);
                     case "showStageName" -> CLIENT.showStageName = parseBool(value, CLIENT.showStageName);
                     case "showAllUntilComplete" -> CLIENT.showAllUntilComplete = parseBool(value, CLIENT.showAllUntilComplete);
-                    case "hideInJei" -> CLIENT.hideInJei = parseBool(value, CLIENT.hideInJei);
                     case "jadeShowInfo" -> CLIENT.jadeShowInfo = parseBool(value, CLIENT.jadeShowInfo);
                     case "jadeStageName" -> CLIENT.jadeStageName = parseBool(value, CLIENT.jadeStageName);
                     case "jadeShowAllUntilComplete" -> CLIENT.jadeShowAllUntilComplete = parseBool(value, CLIENT.jadeShowAllUntilComplete);
@@ -258,15 +295,14 @@ public final class Config {
         public boolean individualUseToasts = true;
         public boolean structureMessageEnabled = true;
         public boolean structureLockInChat = false;
-        public boolean structureDamageEnabled = true;
+        public boolean structureDamageEnabled = false;
         public float structureDamageAmount = 1.0F;
-        public int structureDamageInterval = 40;
-        public int structureCheckInterval = 20;
-        public String structureLockMessageFormat = "This structure is locked by {stage}";
+        public int structureDamageInterval = 20;
+        public int structureCheckInterval = 10;
+        public String structureLockMessageFormat = DEFAULT_STRUCTURE_LOCK_MESSAGE;
     }
 
     public static final class Client {
-        public boolean hideInJei = false;
         public boolean showTooltips = true;
         public boolean showIndividualTooltips = true;
         public boolean showStageName = true;

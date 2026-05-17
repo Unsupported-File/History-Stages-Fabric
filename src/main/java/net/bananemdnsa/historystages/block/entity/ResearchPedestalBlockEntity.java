@@ -1,5 +1,6 @@
 package net.bananemdnsa.historystages.block.entity;
 
+import net.bananemdnsa.historystages.Config;
 import net.bananemdnsa.historystages.data.StageEntry;
 import net.bananemdnsa.historystages.data.StageManager;
 import net.bananemdnsa.historystages.data.dependency.DependencyChecker;
@@ -262,7 +263,10 @@ public class ResearchPedestalBlockEntity extends BlockEntity implements WorldlyC
         if (slot == 0) {
             return stack.is(ModItems.RESEARCH_SCROLL) || stack.is(ModItems.CREATIVE_SCROLL);
         }
-        return true;
+        if (slot == 1) {
+            return hasScrollWithDependencies() && isItemNeeded(stack);
+        }
+        return false;
     }
 
     @Override
@@ -374,6 +378,79 @@ public class ResearchPedestalBlockEntity extends BlockEntity implements WorldlyC
         }
     }
 
+    public void handleDependencyDeposit(ServerPlayer player, int groupIndex, String type, String data) {
+        ItemStack scroll = getScrollStack();
+        if (!hasValidScroll(scroll)) {
+            return;
+        }
+        StageEntry entry = getCurrentStageEntry(scroll);
+        if (entry == null || !entry.hasDependencies() || groupIndex < 0 || groupIndex >= entry.getDependencies().size()) {
+            return;
+        }
+
+        var group = entry.getDependencies().get(groupIndex);
+        CompoundTag tag = getCustomTag(scroll);
+        CompoundTag deposited = tag.contains("DepositedDependencies")
+                ? tag.getCompound("DepositedDependencies")
+                : new CompoundTag();
+
+        if ("XP".equals(type)) {
+            var xpLevel = group.getXpLevel();
+            if (xpLevel != null && xpLevel.isConsume() && xpLevel.getLevel() > 0) {
+                String key = "Group_" + groupIndex + "_XP";
+                if (!deposited.getBoolean(key) && player.experienceLevel >= xpLevel.getLevel()) {
+                    player.giveExperienceLevels(-xpLevel.getLevel());
+                    deposited.putBoolean(key, true);
+                    tag.put("DepositedDependencies", deposited);
+                    setCustomTag(scroll, tag);
+                    setChanged();
+                }
+            }
+            return;
+        }
+
+        if ("ITEM".equals(type) && data != null && !data.isBlank()) {
+            int required = 0;
+            for (var item : group.getItems()) {
+                if (data.equals(item.getId())) {
+                    required = item.getCount();
+                    break;
+                }
+            }
+            if (required <= 0) {
+                return;
+            }
+
+            String key = "Group_" + groupIndex + "_Item_" + data;
+            int current = deposited.getInt(key);
+            int needed = required - current;
+            if (needed <= 0) {
+                return;
+            }
+
+            int consumed = 0;
+            Inventory inventory = player.getInventory();
+            for (int i = 0; i < inventory.getContainerSize() && consumed < needed; i++) {
+                ItemStack stack = inventory.getItem(i);
+                if (stack.isEmpty()) {
+                    continue;
+                }
+                String stackId = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+                if (data.equals(stackId)) {
+                    int removed = Math.min(needed - consumed, stack.getCount());
+                    stack.shrink(removed);
+                    consumed += removed;
+                }
+            }
+            if (consumed > 0) {
+                deposited.putInt(key, current + consumed);
+                tag.put("DepositedDependencies", deposited);
+                setCustomTag(scroll, tag);
+                setChanged();
+            }
+        }
+    }
+
     private void writeProgressToScroll(ItemStack scroll, int maxProgress) {
         CompoundTag tag = getCustomTag(scroll);
         tag.putInt("ResearchProgress", progress);
@@ -431,7 +508,14 @@ public class ResearchPedestalBlockEntity extends BlockEntity implements WorldlyC
             for (String stage : StageManager.getIndividualStages().keySet()) {
                 individual.addStage(player.getUUID(), stage);
             }
-            player.sendSystemMessage(Component.translatable("command.historystages.unlocked_all"));
+            if (Config.COMMON.broadcastChat) {
+                player.sendSystemMessage(Component.literal("[HistoryStages] ").withStyle(ChatFormatting.GRAY)
+                        .append(Component.translatable("command.historystages.unlocked_all")
+                                .withStyle(ChatFormatting.GREEN)));
+            }
+            if (Config.COMMON.useSounds) {
+                player.playNotifySound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.MASTER, 0.75F, 1.0F);
+            }
         }
         Networking.syncAll(level.getServer());
     }
@@ -442,17 +526,39 @@ public class ResearchPedestalBlockEntity extends BlockEntity implements WorldlyC
         if (individual && owner != null) {
             ServerPlayer player = level.getServer().getPlayerList().getPlayer(owner);
             if (player != null) {
-                player.sendSystemMessage(Component.literal("Unlocked individual stage: ").withStyle(ChatFormatting.GRAY)
-                        .append(Component.literal(displayName).withStyle(ChatFormatting.AQUA)));
-                player.playNotifySound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.MASTER, 0.75F, 1.0F);
+                String message = color(Config.COMMON.individualUnlockMessageFormat
+                        .replace("{stage}", displayName)
+                        .replace("{player}", player.getName().getString()));
+                if (Config.COMMON.individualBroadcastChat) {
+                    player.sendSystemMessage(Component.literal("[HistoryStages] ").withStyle(ChatFormatting.GRAY)
+                            .append(Component.literal(message)));
+                }
+                if (Config.COMMON.individualUseActionbar) {
+                    player.displayClientMessage(Component.literal(message), true);
+                }
+                if (Config.COMMON.individualUseSounds) {
+                    player.playNotifySound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.MASTER, 0.75F, 1.0F);
+                }
             }
         } else {
+            String message = color(Config.COMMON.unlockMessageFormat.replace("{stage}", displayName));
             for (ServerPlayer player : level.getServer().getPlayerList().getPlayers()) {
-                player.sendSystemMessage(Component.literal("Unlocked stage: ").withStyle(ChatFormatting.GRAY)
-                        .append(Component.literal(displayName).withStyle(ChatFormatting.AQUA)));
-                player.playNotifySound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.MASTER, 0.75F, 1.0F);
+                if (Config.COMMON.broadcastChat) {
+                    player.sendSystemMessage(Component.literal("[HistoryStages] ").withStyle(ChatFormatting.GRAY)
+                            .append(Component.literal(message)));
+                }
+                if (Config.COMMON.useActionbar) {
+                    player.displayClientMessage(Component.literal(message), true);
+                }
+                if (Config.COMMON.useSounds) {
+                    player.playNotifySound(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, SoundSource.MASTER, 0.75F, 1.0F);
+                }
             }
         }
+    }
+
+    private static String color(String value) {
+        return value.replace("&", "\u00A7");
     }
 
     private int getMaxProgressForCurrentStage() {

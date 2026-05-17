@@ -26,6 +26,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
@@ -45,6 +46,7 @@ public final class GameplayEvents {
     private static final Map<UUID, Long> MESSAGE_COOLDOWNS = new HashMap<>();
     private static final Map<UUID, String> PORTAL_TOUCH_TARGETS = new HashMap<>();
     private static final long COOLDOWN_MS = 2000L;
+    private static int spawnLockScanTicks;
 
     private GameplayEvents() {
     }
@@ -52,7 +54,7 @@ public final class GameplayEvents {
     public static void register() {
         UseItemCallback.EVENT.register((player, world, hand) -> {
             ItemStack stack = player.getItemInHand(hand);
-            if (shouldBlockHeldItem(stack, player)) {
+            if (shouldBlockHeldItem(stack, player, "use")) {
                 showMessage(player, "message.historystages.item_locked");
                 return InteractionResultHolder.fail(stack);
             }
@@ -61,7 +63,8 @@ public final class GameplayEvents {
 
         UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
             ItemStack held = player.getItemInHand(hand);
-            if (shouldBlockHeldItem(held, player)) {
+            String action = held.getItem() instanceof BlockItem ? "place" : "use";
+            if (shouldBlockHeldItem(held, player, action)) {
                 showMessage(player, "message.historystages.item_locked");
                 return InteractionResult.FAIL;
             }
@@ -69,7 +72,7 @@ public final class GameplayEvents {
             BlockPos pos = hitResult.getBlockPos();
             BlockState state = world.getBlockState(pos);
             BlockEntity blockEntity = world.getBlockEntity(pos);
-            if (hasMenu(state.getBlock(), blockEntity) && shouldBlockBlock(state, player)) {
+            if (hasMenu(state.getBlock(), blockEntity) && shouldBlockBlock(state, player, "gui")) {
                 showMessage(player, "message.historystages.block_locked");
                 return InteractionResult.FAIL;
             }
@@ -78,7 +81,7 @@ public final class GameplayEvents {
         });
 
         AttackBlockCallback.EVENT.register((player, world, hand, pos, direction) -> {
-            if (shouldBlockHeldItem(player.getItemInHand(hand), player)) {
+            if (shouldBlockHeldItem(player.getItemInHand(hand), player, "break")) {
                 showMessage(player, "message.historystages.item_locked");
                 return InteractionResult.FAIL;
             }
@@ -87,7 +90,7 @@ public final class GameplayEvents {
 
         AttackEntityCallback.EVENT.register((player, world, hand, entity, hitResult) -> {
             ItemStack held = player.getItemInHand(hand);
-            if (shouldBlockHeldItem(held, player)) {
+            if (shouldBlockHeldItem(held, player, "attack")) {
                 showMessage(player, "message.historystages.item_locked");
                 return InteractionResult.FAIL;
             }
@@ -102,7 +105,7 @@ public final class GameplayEvents {
         });
 
         PlayerBlockBreakEvents.BEFORE.register((world, player, pos, state, blockEntity) -> {
-            if (shouldBlockBlock(state, player)) {
+            if (shouldBlockBlock(state, player, "break")) {
                 showMessage(player, "message.historystages.block_locked");
                 if (!world.isClientSide()) {
                     world.levelEvent(2001, pos, Block.getId(state));
@@ -118,7 +121,7 @@ public final class GameplayEvents {
                 return;
             }
             if ((slot.getType() != EquipmentSlot.Type.HUMANOID_ARMOR && slot != EquipmentSlot.OFFHAND)
-                    || !shouldBlockHeldItem(currentStack, player)) {
+                    || !shouldBlockHeldItem(currentStack, player, "equip")) {
                 return;
             }
             player.setItemSlot(slot, ItemStack.EMPTY);
@@ -129,12 +132,19 @@ public final class GameplayEvents {
             showMessage(player, "message.historystages.item_locked");
         });
 
+        ServerEntityEvents.ENTITY_LOAD.register((entity, world) -> discardSpawnLockedEntity(entity));
+
         ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) -> {
-            if (!(source.getEntity() instanceof ServerPlayer player)) {
+            ServerPlayer player = attackingPlayer(source.getEntity(), source.getDirectEntity());
+            if (player == null) {
                 return true;
             }
             ResourceLocation entityId = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType());
-            return entityId == null || !StageLockHelper.isEntityAttackLockedForPlayer(entityId.toString(), player.getUUID());
+            if (entityId != null && StageLockHelper.isEntityAttackLockedForPlayer(entityId.toString(), player.getUUID())) {
+                showMessage(player, "message.historystages.mob_unknown");
+                return false;
+            }
+            return true;
         });
 
         ServerTickEvents.END_SERVER_TICK.register(server -> {
@@ -149,6 +159,10 @@ public final class GameplayEvents {
                     PORTAL_TOUCH_TARGETS.remove(player.getUUID());
                 }
             }
+            if (++spawnLockScanTicks >= 5) {
+                spawnLockScanTicks = 0;
+                server.getAllLevels().forEach(level -> level.getAllEntities().forEach(GameplayEvents::discardSpawnLockedEntity));
+            }
             DebugLogger.cleanupThrottleMap();
         });
     }
@@ -161,17 +175,17 @@ public final class GameplayEvents {
         showMessage(player, "message.historystages.dimension_unknown");
     }
 
-    private static boolean shouldBlockHeldItem(ItemStack stack, Player player) {
+    private static boolean shouldBlockHeldItem(ItemStack stack, Player player, String action) {
         if (stack.isEmpty()) {
             return false;
         }
         if (Config.COMMON.lockItemUsage) {
             if (player.level().isClientSide()) {
-                if (StageLockHelper.isItemLockedForClient(stack)) {
+                if (StageLockHelper.isActionLockedForClient(stack, action)) {
                     return true;
                 }
             } else if (player instanceof ServerPlayer serverPlayer
-                    && StageLockHelper.isItemLockedForPlayer(stack, serverPlayer)) {
+                    && StageLockHelper.isActionLockedForPlayer(stack, serverPlayer.getUUID(), action)) {
                 return true;
             }
         }
@@ -179,36 +193,71 @@ public final class GameplayEvents {
             return false;
         }
         if (player.level().isClientSide()) {
-            return StageLockHelper.isItemLockedByIndividualStageClient(stack);
+            return StageLockHelper.isActionLockedByIndividualStageClient(stack, action);
         }
-        return StageLockHelper.isItemLockedByIndividualStage(stack, player.getUUID());
+        return StageLockHelper.isActionLockedByIndividualStage(stack, player.getUUID(), action);
     }
 
-    private static boolean shouldBlockBlock(BlockState state, Player player) {
+    private static boolean shouldBlockBlock(BlockState state, Player player, String action) {
         ItemStack stack = new ItemStack(state.getBlock().asItem());
         if (stack.isEmpty()) {
             return false;
         }
-        if (Config.COMMON.lockBlockInteraction || Config.COMMON.lockBlockBreaking) {
+        boolean globalEnabled = "break".equals(action) ? Config.COMMON.lockBlockBreaking : Config.COMMON.lockBlockInteraction;
+        if (globalEnabled) {
             if (player.level().isClientSide()) {
-                if (StageLockHelper.isItemLockedForClient(stack)) {
+                if (StageLockHelper.isActionLockedForClient(stack, action)) {
                     return true;
                 }
-            } else if (player instanceof ServerPlayer serverPlayer && StageLockHelper.isItemLockedForPlayer(stack, serverPlayer)) {
+            } else if (player instanceof ServerPlayer serverPlayer
+                    && StageLockHelper.isActionLockedForPlayer(stack, serverPlayer.getUUID(), action)) {
                 return true;
             }
         }
-        if (!(Config.COMMON.individualLockBlockInteraction || Config.COMMON.individualLockBlockBreaking)) {
+        boolean individualEnabled = "break".equals(action)
+                ? Config.COMMON.individualLockBlockBreaking
+                : Config.COMMON.individualLockBlockInteraction;
+        if (!individualEnabled) {
             return false;
         }
         if (player.level().isClientSide()) {
-            return StageLockHelper.isItemLockedByIndividualStageClient(stack);
+            return StageLockHelper.isActionLockedByIndividualStageClient(stack, action);
         }
-        return StageLockHelper.isItemLockedByIndividualStage(stack, player.getUUID());
+        return StageLockHelper.isActionLockedByIndividualStage(stack, player.getUUID(), action);
     }
 
     private static boolean hasMenu(Block block, BlockEntity blockEntity) {
         return block instanceof net.minecraft.world.MenuProvider || blockEntity instanceof net.minecraft.world.MenuProvider;
+    }
+
+    private static boolean discardSpawnLockedEntity(Entity entity) {
+        if (entity instanceof ServerPlayer) {
+            return false;
+        }
+        ResourceLocation entityId = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType());
+        if (entityId == null) {
+            return false;
+        }
+        for (String stageId : StageManager.getAllStagesForSpawnLockedEntity(entityId.toString())) {
+            if (!net.bananemdnsa.historystages.util.StageData.SERVER_CACHE.contains(stageId)) {
+                entity.discard();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static ServerPlayer attackingPlayer(Entity sourceEntity, Entity directEntity) {
+        if (sourceEntity instanceof ServerPlayer player) {
+            return player;
+        }
+        if (directEntity instanceof ServerPlayer player) {
+            return player;
+        }
+        if (directEntity instanceof Projectile projectile && projectile.getOwner() instanceof ServerPlayer player) {
+            return player;
+        }
+        return null;
     }
 
     private static String getLockedPortalTarget(ServerPlayer player) {

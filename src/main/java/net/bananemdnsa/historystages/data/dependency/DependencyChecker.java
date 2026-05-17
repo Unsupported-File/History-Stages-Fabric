@@ -7,13 +7,15 @@ import net.bananemdnsa.historystages.util.IndividualStageData;
 import net.bananemdnsa.historystages.util.StageData;
 import net.minecraft.advancements.AdvancementHolder;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.stats.ServerStatsCounter;
 import net.minecraft.stats.Stats;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
-import net.minecraft.nbt.CompoundTag;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -48,46 +50,65 @@ public final class DependencyChecker {
         boolean orLogic = "OR".equalsIgnoreCase(group.getLogic());
 
         for (DependencyItem item : group.getItems()) {
-            String key = "Group_" + groupIndex + "_Item_" + item.getId();
+            ResourceLocation id = ResourceLocation.tryParse(item.getId());
+            String idString = id != null ? id.toString() : item.getId();
+            String key = "Group_" + groupIndex + "_Item_" + idString;
             int current = depositedData != null ? depositedData.getInt(key) : 0;
             boolean met = current >= item.getCount();
-            entries.add(new DependencyResult.EntryResult("item", item.getId(), item.getCount() + "x " + item.getId(),
-                    met, current, item.getCount()));
+            entries.add(new DependencyResult.EntryResult("item", idString,
+                    item.getCount() + "x " + getItemDisplayName(idString), met, current, item.getCount()));
         }
 
         for (String stageId : group.getStages()) {
             boolean met = level != null && !level.isClientSide() && StageData.get(level).hasStage(stageId);
-            entries.add(new DependencyResult.EntryResult("stage", stageId, stageId, met, met ? 1 : 0, 1));
+            StageEntry stage = StageManager.getStages().get(stageId);
+            String name = stage != null ? stage.getDisplayName() : stageId;
+            entries.add(new DependencyResult.EntryResult("stage", stageId, name, met, met ? 1 : 0, 1));
         }
 
         for (IndividualStageDep dep : group.getIndividualStages()) {
             boolean met = checkIndividualStageDep(dep, level);
-            entries.add(new DependencyResult.EntryResult("individual_stage", dep.getStageId(), dep.getStageId(), met, met ? 1 : 0, 1));
+            StageEntry stage = StageManager.getIndividualStages().get(dep.getStageId());
+            String name = stage != null ? stage.getDisplayName() : dep.getStageId();
+            String mode = dep.isAllEver() ? " (all ever)" : " (all online)";
+            entries.add(new DependencyResult.EntryResult("individual_stage", dep.getStageId(), name + mode, met,
+                    met ? 1 : 0, 1));
         }
 
         for (String advancementId : group.getAdvancements()) {
             boolean met = player != null && checkAdvancement(player, advancementId);
-            entries.add(new DependencyResult.EntryResult("advancement", advancementId, advancementId, met, met ? 1 : 0, 1));
+            entries.add(new DependencyResult.EntryResult("advancement", advancementId, advancementId, met,
+                    met ? 1 : 0, 1));
         }
 
         XpLevelDep xpLevel = group.getXpLevel();
         if (xpLevel != null && xpLevel.getLevel() > 0) {
+            boolean met;
             int current = player != null ? player.experienceLevel : 0;
-            boolean met = current >= xpLevel.getLevel();
-            entries.add(new DependencyResult.EntryResult("xp_level", "xp", "Level " + xpLevel.getLevel(), met, current, xpLevel.getLevel()));
+            if (xpLevel.isConsume()) {
+                met = depositedData != null && depositedData.getBoolean("Group_" + groupIndex + "_XP");
+                current = met ? xpLevel.getLevel() : current;
+            } else {
+                met = current >= xpLevel.getLevel();
+            }
+            boolean canDeposit = xpLevel.isConsume() && !met;
+            String desc = "Level " + xpLevel.getLevel() + (xpLevel.isConsume() ? " (consumed)" : "");
+            entries.add(new DependencyResult.EntryResult("xp_level", "xp", desc, met, current,
+                    xpLevel.getLevel(), canDeposit));
         }
 
         for (EntityKillDep kill : group.getEntityKills()) {
             int current = player != null ? getKillCount(player, kill.getEntityId()) : 0;
             boolean met = current >= kill.getCount();
-            entries.add(new DependencyResult.EntryResult("entity_kill", kill.getEntityId(), kill.getCount() + "x " + kill.getEntityId(),
-                    met, current, kill.getCount()));
+            entries.add(new DependencyResult.EntryResult("entity_kill", kill.getEntityId(),
+                    kill.getCount() + "x " + getEntityDisplayName(kill.getEntityId()), met, current, kill.getCount()));
         }
 
         for (StatDep stat : group.getStats()) {
             int current = player != null ? getStatValue(player, stat.getStatId()) : 0;
             boolean met = current >= stat.getMinValue();
-            entries.add(new DependencyResult.EntryResult("stat", stat.getStatId(), stat.getStatId(), met, current, stat.getMinValue()));
+            entries.add(new DependencyResult.EntryResult("stat", stat.getStatId(),
+                    stat.getStatId() + " >= " + stat.getMinValue(), met, current, stat.getMinValue()));
         }
 
         boolean fulfilled;
@@ -125,7 +146,7 @@ public final class DependencyChecker {
         if (players.isEmpty()) {
             return false;
         }
-        for (var player : players) {
+        for (ServerPlayer player : players) {
             if (!data.hasStage(player.getUUID(), dep.getStageId())) {
                 return false;
             }
@@ -165,5 +186,23 @@ public final class DependencyChecker {
         } catch (Exception ignored) {
             return 0;
         }
+    }
+
+    private static String getItemDisplayName(String itemId) {
+        ResourceLocation id = ResourceLocation.tryParse(itemId);
+        if (id == null) {
+            return itemId;
+        }
+        Item item = BuiltInRegistries.ITEM.get(id);
+        return item == null || item == Items.AIR ? itemId : item.getDescription().getString();
+    }
+
+    private static String getEntityDisplayName(String entityId) {
+        ResourceLocation id = ResourceLocation.tryParse(entityId);
+        if (id == null) {
+            return entityId;
+        }
+        EntityType<?> entityType = BuiltInRegistries.ENTITY_TYPE.get(id);
+        return entityType != null ? entityType.getDescription().getString() : entityId;
     }
 }

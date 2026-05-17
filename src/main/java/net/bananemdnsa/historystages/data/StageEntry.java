@@ -24,8 +24,12 @@ public class StageEntry {
 
     @JsonAdapter(ItemEntryListAdapter.class)
     private List<ItemEntry> items;
-    private List<String> tags;
-    private List<String> mods;
+
+    @JsonAdapter(NamedLockEntryListAdapter.class)
+    private List<NamedLockEntry> tags;
+
+    @JsonAdapter(NamedLockEntryListAdapter.class)
+    private List<NamedLockEntry> mods;
 
     @SerializedName("mod_exceptions")
     @JsonAdapter(ItemEntryListAdapter.class)
@@ -33,7 +37,9 @@ public class StageEntry {
 
     private List<String> recipes;
     private List<String> dimensions;
-    private List<String> structures;
+
+    @JsonAdapter(StructureLocksAdapter.class)
+    private StructureLocks structures;
     private EntityLocks entities;
     private List<DependencyGroup> dependencies;
 
@@ -44,7 +50,7 @@ public class StageEntry {
         this.modExceptions = new ArrayList<>();
         this.recipes = new ArrayList<>();
         this.dimensions = new ArrayList<>();
-        this.structures = new ArrayList<>();
+        this.structures = new StructureLocks();
         this.entities = new EntityLocks();
     }
 
@@ -81,8 +87,23 @@ public class StageEntry {
         return items != null ? items : new ArrayList<>();
     }
 
-    public List<String> getTags() { return tags != null ? tags : new ArrayList<>(); }
-    public List<String> getMods() { return mods != null ? mods : new ArrayList<>(); }
+    public List<String> getTags() {
+        if (tags == null) return new ArrayList<>();
+        return tags.stream().map(NamedLockEntry::getId).collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    public List<NamedLockEntry> getTagEntries() {
+        return tags != null ? tags : new ArrayList<>();
+    }
+
+    public List<String> getMods() {
+        if (mods == null) return new ArrayList<>();
+        return mods.stream().map(NamedLockEntry::getId).collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    public List<NamedLockEntry> getModEntries() {
+        return mods != null ? mods : new ArrayList<>();
+    }
 
     /** Returns item IDs of mod exception entries WITHOUT NBT criteria. */
     public List<String> getModExceptions() {
@@ -131,7 +152,11 @@ public class StageEntry {
     }
 
     public List<String> getStructures() {
-        return structures != null ? structures : new ArrayList<>();
+        return structures != null ? structures.getStructures() : new ArrayList<>();
+    }
+
+    public List<String> getStructureModLinked() {
+        return structures != null ? structures.getModLinked() : new ArrayList<>();
     }
 
     public EntityLocks getEntities() {
@@ -178,10 +203,26 @@ public class StageEntry {
     }
 
     public void setTags(List<String> tags) {
+        if (tags == null) {
+            this.tags = new ArrayList<>();
+        } else {
+            this.tags = tags.stream().map(NamedLockEntry::new).collect(Collectors.toCollection(ArrayList::new));
+        }
+    }
+
+    public void setTagEntries(List<NamedLockEntry> tags) {
         this.tags = tags != null ? new ArrayList<>(tags) : new ArrayList<>();
     }
 
     public void setMods(List<String> mods) {
+        if (mods == null) {
+            this.mods = new ArrayList<>();
+        } else {
+            this.mods = mods.stream().map(NamedLockEntry::new).collect(Collectors.toCollection(ArrayList::new));
+        }
+    }
+
+    public void setModEntries(List<NamedLockEntry> mods) {
         this.mods = mods != null ? new ArrayList<>(mods) : new ArrayList<>();
     }
 
@@ -210,7 +251,17 @@ public class StageEntry {
     }
 
     public void setStructures(List<String> structures) {
-        this.structures = structures != null ? new ArrayList<>(structures) : new ArrayList<>();
+        if (this.structures == null) {
+            this.structures = new StructureLocks();
+        }
+        this.structures.setStructures(structures);
+    }
+
+    public void setStructureModLinked(List<String> modLinked) {
+        if (this.structures == null) {
+            this.structures = new StructureLocks();
+        }
+        this.structures.setModLinked(modLinked);
     }
 
     public void setEntities(EntityLocks entities) {
@@ -227,12 +278,13 @@ public class StageEntry {
         copy.setResearchTime(researchTime);
         copy.setIcon(icon);
         copy.setItemEntries(getItemEntries().stream().map(ItemEntry::copy).collect(Collectors.toList()));
-        copy.setTags(getTags());
-        copy.setMods(getMods());
+        copy.setTagEntries(getTagEntries().stream().map(NamedLockEntry::copy).collect(Collectors.toList()));
+        copy.setModEntries(getModEntries().stream().map(NamedLockEntry::copy).collect(Collectors.toList()));
         copy.setModExceptionEntries(getModExceptionEntries().stream().map(ItemEntry::copy).collect(Collectors.toList()));
         copy.setRecipes(getRecipes());
         copy.setDimensions(getDimensions());
         copy.setStructures(getStructures());
+        copy.setStructureModLinked(getStructureModLinked());
         EntityLocks locksCopy = new EntityLocks();
         locksCopy.setAttacklock(getEntities().getAttacklock());
         locksCopy.setSpawnlock(getEntities().getSpawnlock());

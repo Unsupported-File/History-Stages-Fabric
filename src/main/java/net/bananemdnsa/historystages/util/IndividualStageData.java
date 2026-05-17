@@ -9,6 +9,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.datafix.DataFixTypes;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.saveddata.SavedData;
+import net.bananemdnsa.historystages.ftbquests.OptionalFTBQuestsHooks;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -87,9 +88,12 @@ public class IndividualStageData extends SavedData {
     }
 
     public void addStage(UUID player, String stage) {
-        playerStages.computeIfAbsent(player, k -> new HashSet<>()).add(stage);
+        boolean added = playerStages.computeIfAbsent(player, k -> new HashSet<>()).add(stage);
         SERVER_CACHE.computeIfAbsent(player, k -> ConcurrentHashMap.newKeySet()).add(stage);
-        setDirty();
+        if (added) {
+            OptionalFTBQuestsHooks.individualUnlocked(stage, player);
+            setDirty();
+        }
     }
 
     public boolean removeStage(UUID player, String stage) {

@@ -20,13 +20,31 @@ public class ItemEntryListAdapter extends TypeAdapter<List<ItemEntry>> {
         }
         out.beginArray();
         for (ItemEntry entry : entries) {
-            if (!entry.hasNbt()) {
+            if (!entry.hasNbt() && !entry.hasLockActions()) {
                 out.value(entry.getId());
             } else {
                 out.beginObject();
                 out.name("id").value(entry.getId());
-                out.name("nbt");
-                Streams.write(entry.getNbt(), out);
+                if (entry.hasNbt()) {
+                    out.name("nbt");
+                    Streams.write(entry.getNbt(), out);
+                }
+                if (entry.hasLockActions()) {
+                    List<String> unlocked = new ArrayList<>();
+                    for (String action : NamedLockEntry.ALL_ACTIONS) {
+                        if (!entry.getLockActions().contains(action)) {
+                            unlocked.add(action);
+                        }
+                    }
+                    if (!unlocked.isEmpty()) {
+                        out.name("unlock_actions");
+                        out.beginArray();
+                        for (String action : unlocked) {
+                            out.value(action);
+                        }
+                        out.endArray();
+                    }
+                }
                 out.endObject();
             }
         }
@@ -48,7 +66,25 @@ public class ItemEntryListAdapter extends TypeAdapter<List<ItemEntry>> {
                 JsonObject obj = JsonParser.parseReader(in).getAsJsonObject();
                 String id = obj.has("id") ? obj.get("id").getAsString() : "";
                 JsonObject nbt = obj.has("nbt") ? obj.getAsJsonObject("nbt") : null;
-                entries.add(new ItemEntry(id, nbt));
+                List<String> lockActions = null;
+                if (obj.has("unlock_actions") && obj.get("unlock_actions").isJsonArray()) {
+                    List<String> unlocked = new ArrayList<>();
+                    for (JsonElement element : obj.getAsJsonArray("unlock_actions")) {
+                        unlocked.add(element.getAsString());
+                    }
+                    lockActions = new ArrayList<>();
+                    for (String action : NamedLockEntry.ALL_ACTIONS) {
+                        if (!unlocked.contains(action)) {
+                            lockActions.add(action);
+                        }
+                    }
+                } else if (obj.has("lock_actions") && obj.get("lock_actions").isJsonArray()) {
+                    lockActions = new ArrayList<>();
+                    for (JsonElement element : obj.getAsJsonArray("lock_actions")) {
+                        lockActions.add(element.getAsString());
+                    }
+                }
+                entries.add(new ItemEntry(id, nbt, lockActions));
             }
         }
         in.endArray();

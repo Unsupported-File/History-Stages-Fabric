@@ -5,12 +5,15 @@
   "mixins": [
     "AbstractContainerMenuMixin",
     "AnvilMenuMixin",
+    "CraftingMenuMixin",
     "EnchantmentMenuMixin",
+    "RecipeManagerCheckMixin",
     "RecipeManagerMixin",
     "ServerPlayerMixin"
   ],
   "client": [
-    "client.GuiGraphicsMixin"
+      "client.EditorScreenBackgroundMixin",
+      "client.GuiGraphicsMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -2,6 +2,7 @@ package net.bananemdnsa.historystages.client;
 
 import net.bananemdnsa.historystages.data.StageManager;
 import net.bananemdnsa.historystages.network.StageDefinitionsPayload;
+import net.bananemdnsa.historystages.network.StructureRegistryPayload;
 import net.bananemdnsa.historystages.network.UnlockedIndividualStagesPayload;
 import net.bananemdnsa.historystages.network.UnlockedStagesPayload;
 import net.bananemdnsa.historystages.util.ClientIndividualStageCache;
@@ -31,5 +32,8 @@ public final class ClientNetworking {
                     ClientIndividualStageCache.setUnlockedStages(new HashSet<>(payload.stages()));
                     OptionalRecipeViewHooks.refreshAll();
                 }));
+        ClientPlayNetworking.registerGlobalReceiver(StructureRegistryPayload.TYPE, (payload, context) ->
+                Minecraft.getInstance().execute(() ->
+                        ClientStructureRegistry.set(payload.structureIds(), payload.structureTagIds())));
     }
 }

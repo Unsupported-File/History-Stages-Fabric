@@ -190,38 +190,46 @@ public class DependencyEditorScreen extends Screen {
                 currentGroup().getItems().add(new DependencyItem(id, 1));
                 hasChanges = true;
             }
-        });
+        }, () -> hasGroup()
+                ? currentGroup().getItems().stream().map(DependencyItem::getId).collect(Collectors.toList())
+                : List.of());
         entitySearch = new SearchableEntityList(id -> {
             if (hasGroup()) {
                 currentGroup().getEntityKills().add(new EntityKillDep(id, 1));
                 hasChanges = true;
             }
-        });
+        }, () -> hasGroup()
+                ? currentGroup().getEntityKills().stream().map(EntityKillDep::getEntityId).collect(Collectors.toList())
+                : List.of());
         globalStageSearch = new SearchableStageList(id -> {
             if (hasGroup()) {
                 currentGroup().getStages().add(id);
                 hasChanges = true;
             }
-        }, false);
+        }, false, () -> hasGroup() ? currentGroup().getStages() : List.of());
         globalStageSearch.setExcludeStageId(currentStageId);
         individualStageSearch = new SearchableStageList(id -> {
             if (hasGroup()) {
                 currentGroup().getIndividualStages().add(new IndividualStageDep(id, "all_online"));
                 hasChanges = true;
             }
-        }, true);
+        }, true, () -> hasGroup()
+                ? currentGroup().getIndividualStages().stream().map(IndividualStageDep::getStageId).collect(Collectors.toList())
+                : List.of());
         advancementSearch = new SearchableAdvancementList(id -> {
             if (hasGroup()) {
                 currentGroup().getAdvancements().add(id);
                 hasChanges = true;
             }
-        });
+        }, () -> hasGroup() ? currentGroup().getAdvancements() : List.of());
         statSearch = new SearchableStatList(id -> {
             if (hasGroup()) {
                 currentGroup().getStats().add(new StatDep(id, 1));
                 hasChanges = true;
             }
-        });
+        }, () -> hasGroup()
+                ? currentGroup().getStats().stream().map(StatDep::getStatId).collect(Collectors.toList())
+                : List.of());
 
         contextMenu = new ContextMenu();
         computeTabLayout();
@@ -429,8 +437,14 @@ public class DependencyEditorScreen extends Screen {
     // --- Rendering ---
 
     @Override
+    public void renderBackground(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+    }
+
+    @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        g.fill(0, 0, this.width, this.height, 0xB0101010);
+        EditorBlurController.enter(this.minecraft);
+
+        g.fill(0, 0, this.width, this.height, 0xE0101010);
 
         String currentTooltipKey = null;
         String currentTooltipText = null;

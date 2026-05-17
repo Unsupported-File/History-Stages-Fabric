@@ -9,6 +9,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.datafix.DataFixTypes;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.saveddata.SavedData;
+import net.bananemdnsa.historystages.ftbquests.OptionalFTBQuestsHooks;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -77,6 +78,7 @@ public class StageData extends SavedData {
         if (!unlockedStages.contains(stage)) {
             unlockedStages.add(stage);
             SERVER_CACHE.add(stage); // CACHE AKTUALISIEREN
+            OptionalFTBQuestsHooks.globalUnlocked(stage);
             setDirty();
         }
     }

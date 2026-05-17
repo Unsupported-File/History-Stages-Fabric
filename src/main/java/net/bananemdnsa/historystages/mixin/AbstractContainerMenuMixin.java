@@ -12,6 +12,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -37,13 +38,37 @@ public class AbstractContainerMenuMixin {
             return;
         }
         Slot slot = menu.slots.get(slotId);
-        ItemStack stack = slot.getItem();
-        if (stack.isEmpty() || !StageLockHelper.isItemLockedByIndividualStage(stack, serverPlayer.getUUID())) {
+        boolean playerInventorySlot = slot.container instanceof Inventory || menu == serverPlayer.inventoryMenu;
+        ItemStack carried = menu.getCarried();
+        if (!carried.isEmpty()
+                && !playerInventorySlot
+                && isLockedForAction(carried, serverPlayer, "pickup")) {
+            blockClick(ci, serverPlayer, carried, "Container Lock");
             return;
         }
+
+        ItemStack stack = slot.getItem();
+        if (playerInventorySlot) {
+            return;
+        }
+        if (stack.isEmpty() || !isLockedForAction(stack, serverPlayer, "pickup")) {
+            return;
+        }
+        blockClick(ci, serverPlayer, stack, "Container Lock");
+    }
+
+    private static boolean isLockedForAction(ItemStack stack, ServerPlayer player, String action) {
+        if (Config.COMMON.lockItemUsage && StageLockHelper.isActionLockedForPlayer(stack, player.getUUID(), action)) {
+            return true;
+        }
+        return Config.COMMON.individualLockItemUsage
+                && StageLockHelper.isActionLockedByIndividualStage(stack, player.getUUID(), action);
+    }
+
+    private static void blockClick(CallbackInfo ci, ServerPlayer serverPlayer, ItemStack stack, String logLabel) {
         ci.cancel();
         ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
-        DebugLogger.runtimeThrottled("Container Lock", "container_" + serverPlayer.getUUID() + "_" + id,
+        DebugLogger.runtimeThrottled(logLabel, "container_" + serverPlayer.getUUID() + "_" + id,
                 "<" + serverPlayer.getName().getString() + "> Interaction with locked item '" + id + "' blocked");
         long now = System.currentTimeMillis();
         Long last = MESSAGE_COOLDOWNS.get(serverPlayer.getUUID());

@@ -8,10 +8,12 @@ import net.bananemdnsa.historystages.data.StageManager;
 import net.bananemdnsa.historystages.init.ModItems;
 import net.bananemdnsa.historystages.util.ClientIndividualStageCache;
 import net.bananemdnsa.historystages.util.ClientStageCache;
+import net.bananemdnsa.historystages.util.SearchHiddenContents;
 import net.fabricmc.fabric.api.client.item.v1.ItemTooltipCallback;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.ItemStack;
@@ -71,7 +73,7 @@ public final class TooltipHandler {
             return;
         }
 
-        lines.add(Component.literal(header).withStyle(ChatFormatting.DARK_RED));
+        lines.add(Component.literal(header).withStyle(ChatFormatting.RED));
         for (Map.Entry<String, StageEntry> entry : required) {
             boolean unlocked = global
                     ? ClientStageCache.isStageUnlocked(entry.getKey())
@@ -80,11 +82,8 @@ public final class TooltipHandler {
                 continue;
             }
             ChatFormatting nameColor = global ? ChatFormatting.GOLD : ChatFormatting.GRAY;
-            ChatFormatting stateColor = unlocked ? ChatFormatting.GREEN : ChatFormatting.RED;
-            String state = unlocked ? " (Unlocked)" : " (Locked)";
-            lines.add(Component.literal(" - ")
-                    .append(Component.literal(entry.getValue().getDisplayName()).withStyle(nameColor))
-                    .append(Component.literal(state).withStyle(stateColor)));
+            lines.add(Component.literal(" \u00b7 ").withStyle(ChatFormatting.WHITE)
+                    .append(MutableComponent.create(new SearchHiddenContents(entry.getValue().getDisplayName())).withStyle(nameColor)));
         }
     }
 

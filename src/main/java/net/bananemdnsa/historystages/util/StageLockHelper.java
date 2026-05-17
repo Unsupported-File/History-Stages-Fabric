@@ -15,6 +15,7 @@ import net.minecraft.world.item.ItemStack;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -124,6 +125,119 @@ public final class StageLockHelper {
 
         for (String stage : StageManager.getAllIndividualStagesForItemOrMod(id.toString(), id.getNamespace(), stack)) {
             if (!ClientIndividualStageCache.isStageUnlocked(stage)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static boolean isActionLockedForPlayer(ItemStack stack, UUID playerUuid, String action) {
+        if (stack.isEmpty()) {
+            return false;
+        }
+
+        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        if (id == null) {
+            return false;
+        }
+
+        for (Map.Entry<String, StageEntry> entry : StageManager.getStages().entrySet()) {
+            if (StageData.SERVER_CACHE.contains(entry.getKey())) {
+                continue;
+            }
+            if (StageManager.isItemActionLockedForStage(id.toString(), id.getNamespace(), stack, action, entry.getValue())) {
+                return true;
+            }
+        }
+
+        Set<String> individualStages = IndividualStageData.SERVER_CACHE.getOrDefault(playerUuid, Collections.emptySet());
+        for (Map.Entry<String, StageEntry> entry : StageManager.getIndividualStages().entrySet()) {
+            if (individualStages.contains(entry.getKey())) {
+                continue;
+            }
+            if (StageManager.isItemActionLockedForStage(id.toString(), id.getNamespace(), stack, action, entry.getValue())) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static boolean isActionLockedForServer(ItemStack stack, String action) {
+        if (stack.isEmpty()) {
+            return false;
+        }
+
+        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        if (id == null) {
+            return false;
+        }
+
+        for (Map.Entry<String, StageEntry> entry : StageManager.getStages().entrySet()) {
+            if (!StageData.SERVER_CACHE.contains(entry.getKey())
+                    && StageManager.isItemActionLockedForStage(id.toString(), id.getNamespace(), stack, action, entry.getValue())) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static boolean isActionLockedByIndividualStage(ItemStack stack, UUID playerUuid, String action) {
+        if (stack.isEmpty()) {
+            return false;
+        }
+
+        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        if (id == null) {
+            return false;
+        }
+
+        Set<String> individualStages = IndividualStageData.SERVER_CACHE.getOrDefault(playerUuid, Collections.emptySet());
+        for (Map.Entry<String, StageEntry> entry : StageManager.getIndividualStages().entrySet()) {
+            if (!individualStages.contains(entry.getKey())
+                    && StageManager.isItemActionLockedForStage(id.toString(), id.getNamespace(), stack, action, entry.getValue())) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static boolean isActionLockedForClient(ItemStack stack, String action) {
+        if (stack.isEmpty()) {
+            return false;
+        }
+
+        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        if (id == null) {
+            return false;
+        }
+
+        for (Map.Entry<String, StageEntry> entry : StageManager.getStages().entrySet()) {
+            if (!ClientStageCache.isStageUnlocked(entry.getKey())
+                    && StageManager.isItemActionLockedForStage(id.toString(), id.getNamespace(), stack, action, entry.getValue())) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static boolean isActionLockedByIndividualStageClient(ItemStack stack, String action) {
+        if (stack.isEmpty()) {
+            return false;
+        }
+
+        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        if (id == null) {
+            return false;
+        }
+
+        for (Map.Entry<String, StageEntry> entry : StageManager.getIndividualStages().entrySet()) {
+            if (!ClientIndividualStageCache.isStageUnlocked(entry.getKey())
+                    && StageManager.isItemActionLockedForStage(id.toString(), id.getNamespace(), stack, action, entry.getValue())) {
                 return true;
             }
         }

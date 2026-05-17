@@ -61,6 +61,8 @@ public class StageOverviewScreen extends Screen {
 
     @Override
     protected void init() {
+        EditorBlurController.enter(this.minecraft);
+
         stageOrder = new ArrayList<>(StageManager.getStageOrder());
         individualStageOrder = new ArrayList<>(StageManager.getIndividualStageOrder());
 
@@ -130,7 +132,13 @@ public class StageOverviewScreen extends Screen {
     }
 
     @Override
+    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    }
+
+    @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+        EditorBlurController.enter(this.minecraft);
+
         // Refresh stage list if another admin changed definitions (broadcast via
         // SyncStageDefinitionsPacket)
         int currentCount = StageManager.getStages().size();
@@ -150,7 +158,7 @@ public class StageOverviewScreen extends Screen {
         if (Math.abs(smoothScroll - (float) scrollOffset) < 0.5f)
             smoothScroll = (float) scrollOffset;
 
-        guiGraphics.fill(0, 0, this.width, this.height, 0x90101010);
+        guiGraphics.fill(0, 0, this.width, this.height, 0xE0101010);
         guiGraphics.drawCenteredString(this.font, this.title, this.width / 2, 10, 0xFFFFFF);
 
         // Search bar (left side, same row as title)
@@ -795,6 +803,10 @@ public class StageOverviewScreen extends Screen {
                 }
             }
             return super.mouseClicked(mouseX, mouseY, button);
+        }
+
+        @Override
+        public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         }
 
         @Override

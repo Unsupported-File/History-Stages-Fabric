@@ -1,16 +1,17 @@
 package net.bananemdnsa.historystages.util;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
 public final class ClientIndividualStageCache {
-    private static Set<String> unlockedStages = new HashSet<>();
+    private static volatile Set<String> unlockedStages = Collections.emptySet();
 
     private ClientIndividualStageCache() {
     }
 
     public static void setUnlockedStages(Set<String> stages) {
-        unlockedStages = new HashSet<>(stages);
+        unlockedStages = Collections.unmodifiableSet(new HashSet<>(stages));
     }
 
     public static boolean isStageUnlocked(String stage) {
@@ -18,6 +19,6 @@ public final class ClientIndividualStageCache {
     }
 
     public static void clear() {
-        unlockedStages = new HashSet<>();
+        unlockedStages = Collections.emptySet();
     }
 }

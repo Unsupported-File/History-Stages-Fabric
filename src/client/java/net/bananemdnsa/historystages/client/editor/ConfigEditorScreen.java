@@ -1,7 +1,6 @@
 package net.bananemdnsa.historystages.client.editor;
 
 import net.bananemdnsa.historystages.Config;
-import net.bananemdnsa.historystages.client.OptionalRecipeViewHooks;
 import net.bananemdnsa.historystages.client.editor.widget.ConfirmDialog;
 import net.bananemdnsa.historystages.client.editor.widget.SearchableItemList;
 import net.bananemdnsa.historystages.client.editor.widget.SearchableTagList;
@@ -10,8 +9,11 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraftforge.registries.ForgeRegistries;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,6 +27,8 @@ public class ConfigEditorScreen extends Screen {
     private static final int ENTRY_HEIGHT = 24;
     private static final int SECTION_GAP = 12;
     private static final int TAB_HEIGHT = 16;
+    private static final int TAB_PAD = 8;
+    private static final float SMALL_SCALE = 0.85f;
     private static final long TOOLTIP_DELAY_MS = 500L;
 
     private final Screen parent;
@@ -33,7 +37,7 @@ public class ConfigEditorScreen extends Screen {
     private Config.Client draftClient = copyClient(Config.CLIENT);
     private Config.Common draftCommon = copyCommon(Config.COMMON);
 
-    private int activeTab = 0;
+    private int activeTab = 1;
     private double scrollOffset = 0;
     private int maxScroll = 0;
     private boolean draggingScrollbar = false;
@@ -43,6 +47,8 @@ public class ConfigEditorScreen extends Screen {
 
     private List<ConfigSection> clientSections = List.of();
     private List<ConfigSection> commonSections = List.of();
+    private SearchableItemList itemPickerOverlay;
+    private ConfigEntry itemPickerEntry;
 
     private String hoveredEntryKey;
     private long hoverStartTime;
@@ -57,8 +63,12 @@ public class ConfigEditorScreen extends Screen {
         buildSections();
 
         tabY = 30;
-        tabX = new int[] { this.width / 2 - 100, this.width / 2 + 2 };
-        tabW = new int[] { 98, 98 };
+        int tabTotalWidth = 200;
+        int gap = 2;
+        int tabStartX = this.width / 2 - tabTotalWidth / 2;
+        int tabWidthEach = (tabTotalWidth - gap) / 2;
+        tabX = new int[] { tabStartX, tabStartX + tabWidthEach + gap };
+        tabW = new int[] { tabWidthEach, tabWidthEach };
 
         this.addRenderableWidget(StyledButton.of(
                 Component.translatable("editor.historystages.back"),
@@ -85,9 +95,6 @@ public class ConfigEditorScreen extends Screen {
         List<ConfigSection> common = new ArrayList<>();
 
         ConfigSection visuals = new ConfigSection("Visuals");
-        visuals.add(boolEntry("Hide In JEI",
-                "Hide locked items in JEI/EMI when supported?",
-                () -> draftClient.hideInJei, value -> draftClient.hideInJei = value));
         visuals.add(boolEntry("Show Tooltips",
                 "Show information tooltips on locked items?",
                 () -> draftClient.showTooltips, value -> draftClient.showTooltips = value));
@@ -127,24 +134,32 @@ public class ConfigEditorScreen extends Screen {
         dimLock.add(boolEntry("Use Actionbar",
                 "Show a simple 'Dimension Locked' message in the actionbar?",
                 () -> draftClient.dimUseActionbar, value -> draftClient.dimUseActionbar = value));
-        dimLock.add(boolEntry("Show In Chat",
+        dimLock.add(boolEntry("Show in Chat",
                 "Show the dimension lock message in the chat?",
                 () -> draftClient.dimShowChat, value -> draftClient.dimShowChat = value));
-        dimLock.add(boolEntry("Show Stages In Chat",
+        dimLock.add(boolEntry("Show Stages in Chat",
                 "If dimShowChat is true, should the required stages also be listed?",
                 () -> draftClient.dimShowStagesInChat, value -> draftClient.dimShowStagesInChat = value));
-        client.add(dimLock);
-
         ConfigSection mobLock = new ConfigSection("Mob Lock");
         mobLock.add(boolEntry("Use Actionbar",
                 "Show a 'Mob Protected' message in the actionbar?",
                 () -> draftClient.mobUseActionbar, value -> draftClient.mobUseActionbar = value));
-        mobLock.add(boolEntry("Show In Chat",
+        mobLock.add(boolEntry("Show in Chat",
                 "Show the mob lock message in the chat?",
                 () -> draftClient.mobShowChat, value -> draftClient.mobShowChat = value));
-        mobLock.add(boolEntry("Show Stages In Chat",
+        mobLock.add(boolEntry("Show Stages in Chat",
                 "If mobShowChat is true, should the required stages also be listed?",
                 () -> draftClient.mobShowStagesInChat, value -> draftClient.mobShowStagesInChat = value));
+
+        ConfigSection dependenciesClient = new ConfigSection("Dependencies");
+        dependenciesClient.add(boolEntry("Show Dependencies on Scroll",
+                "Show dependency requirements in research scroll tooltips?",
+                () -> draftClient.showDependenciesOnScroll, value -> draftClient.showDependenciesOnScroll = value));
+        dependenciesClient.add(boolEntry("Hide Fulfilled Dependencies",
+                "Hide already fulfilled dependencies in scroll tooltips?",
+                () -> draftClient.hideFulfilledDependencies, value -> draftClient.hideFulfilledDependencies = value));
+        client.add(dependenciesClient);
+        client.add(dimLock);
         client.add(mobLock);
 
         ConfigSection messages = new ConfigSection("Messages");
@@ -166,7 +181,7 @@ public class ConfigEditorScreen extends Screen {
         gameplay.add(boolEntry("Lock Block Breaking",
                 "Make locked blocks much harder to break and prevent their drops?",
                 () -> draftCommon.lockBlockBreaking, value -> draftCommon.lockBlockBreaking = value));
-        gameplay.add(floatEntry("Locked Block Break Speed Multiplier",
+        gameplay.add(floatEntry("Locked Block Break Speed",
                 "Break speed multiplier for locked blocks (0.001-1.0). Lower = slower.",
                 () -> draftCommon.lockedBlockBreakSpeedMultiplier,
                 value -> draftCommon.lockedBlockBreakSpeedMultiplier = value));
@@ -176,7 +191,7 @@ public class ConfigEditorScreen extends Screen {
         gameplay.add(boolEntry("Lock Entity Items",
                 "Prevent interacting with or breaking armor stands and item frames that contain locked items?",
                 () -> draftCommon.lockEntityItems, value -> draftCommon.lockEntityItems = value));
-        gameplay.add(boolEntry("Lock Block Interaction",
+        gameplay.add(boolEntry("Lock Block GUI",
                 "Prevent opening the GUI of locked blocks? (Chests, furnaces, crafting tables, etc.)",
                 () -> draftCommon.lockBlockInteraction, value -> draftCommon.lockBlockInteraction = value));
         common.add(gameplay);
@@ -197,30 +212,31 @@ public class ConfigEditorScreen extends Screen {
         notifications.add(boolEntry("Use Toasts",
                 "Show an advancement-style toast popup when a stage is unlocked?",
                 () -> draftCommon.useToasts, value -> draftCommon.useToasts = value));
+        notifications.add(itemEntry("Default Stage Icon",
+                "Default icon item shown in unlock toasts when a stage has no icon set.",
+                () -> draftCommon.defaultStageIcon, value -> draftCommon.defaultStageIcon = value));
         common.add(notifications);
 
         ConfigSection researchPedestal = new ConfigSection("Research Pedestal");
-        researchPedestal.add(intEntry("Research Time In Seconds",
+        researchPedestal.add(intEntry("Research Time (seconds)",
                 "Default research time in seconds. Used as fallback if a stage does not define its own.",
                 () -> draftCommon.researchTimeInSeconds, value -> draftCommon.researchTimeInSeconds = value));
-        researchPedestal.add(boolEntry("Show Dependency Screen In Pedestal",
+        researchPedestal.add(boolEntry("Dependency Screen in Pedestal",
                 "Show dependency checklist screen when interacting with pedestal that has dependency requirements?",
                 () -> draftCommon.showDependencyScreenInPedestal,
                 value -> draftCommon.showDependencyScreenInPedestal = value));
-        common.add(researchPedestal);
-
         ConfigSection individualCommon = new ConfigSection("Individual Stages");
         individualCommon.add(boolEntry("Lock Item Pickup",
                 "Prevent players from picking up items locked by individual stages?",
                 () -> draftCommon.individualLockItemPickup, value -> draftCommon.individualLockItemPickup = value));
-        individualCommon.add(boolEntry("Drop On Revoke",
+        individualCommon.add(boolEntry("Drop Items on Revoke",
                 "Drop locked items from a player's inventory when their individual stage is revoked?",
                 () -> draftCommon.individualDropOnRevoke, value -> draftCommon.individualDropOnRevoke = value));
         individualCommon.add(boolEntry("Lock Block Breaking",
                 "Make blocks locked by individual stages much harder to break and prevent their drops?",
                 () -> draftCommon.individualLockBlockBreaking,
                 value -> draftCommon.individualLockBlockBreaking = value));
-        individualCommon.add(floatEntry("Locked Block Break Speed Multiplier",
+        individualCommon.add(floatEntry("Locked Block Break Speed",
                 "Break speed multiplier for blocks locked by individual stages (0.001-1.0). Lower = slower.",
                 () -> draftCommon.individualLockedBlockBreakSpeedMultiplier,
                 value -> draftCommon.individualLockedBlockBreakSpeedMultiplier = value));
@@ -228,7 +244,7 @@ public class ConfigEditorScreen extends Screen {
                 "Prevent using items locked by individual stages? (Blocks equipping armor, using weapons, eating food, etc.)",
                 () -> draftCommon.individualLockItemUsage,
                 value -> draftCommon.individualLockItemUsage = value));
-        individualCommon.add(boolEntry("Lock Block Interaction",
+        individualCommon.add(boolEntry("Lock Block GUI",
                 "Prevent opening the GUI of blocks locked by individual stages? (Chests, furnaces, crafting tables, etc.)",
                 () -> draftCommon.individualLockBlockInteraction,
                 value -> draftCommon.individualLockBlockInteraction = value));
@@ -252,8 +268,6 @@ public class ConfigEditorScreen extends Screen {
                 "Show an advancement-style toast popup when an individual stage is unlocked?",
                 () -> draftCommon.individualUseToasts,
                 value -> draftCommon.individualUseToasts = value));
-        common.add(individualCommon);
-
         ConfigSection lootReplacements = new ConfigSection("Loot Replacements");
         lootReplacements.add(boolEntry("Use Replacements",
                 "If true, locked items are replaced by specific items/tags. If false, they disappear.",
@@ -262,11 +276,38 @@ public class ConfigEditorScreen extends Screen {
                 "List of item IDs to pick from as replacement (Priority 1). Click to manage.",
                 () -> draftCommon.replacementItems,
                 value -> draftCommon.replacementItems = new ArrayList<>(value)));
-        lootReplacements.add(tagListEntry("Replacement Tags",
+        lootReplacements.add(tagListEntry("Replacement Tag",
                 "List of tags to pick a random replacement from (Priority 2). Click to manage.",
                 () -> draftCommon.replacementTag,
                 value -> draftCommon.replacementTag = new ArrayList<>(value)));
+
+        common.add(individualCommon);
+        common.add(researchPedestal);
         common.add(lootReplacements);
+
+        ConfigSection structureLock = new ConfigSection("Structure Lock");
+        structureLock.add(intEntry("Structure Check Interval (ticks)",
+                "How often (in ticks) to check if a player is inside a locked structure.",
+                () -> draftCommon.structureCheckInterval, value -> draftCommon.structureCheckInterval = value));
+        structureLock.add(boolEntry("Show Lock Message",
+                "Show the player a message when they are inside a locked structure?",
+                () -> draftCommon.structureMessageEnabled, value -> draftCommon.structureMessageEnabled = value));
+        structureLock.add(stringEntry("Lock Message Format",
+                "Message format for structure lock. Use {structure}, {stage} and & for colors.",
+                () -> draftCommon.structureLockMessageFormat, value -> draftCommon.structureLockMessageFormat = value));
+        structureLock.add(boolEntry("Show in Chat",
+                "Show the structure lock message in chat as well (otherwise only actionbar)?",
+                () -> draftCommon.structureLockInChat, value -> draftCommon.structureLockInChat = value));
+        structureLock.add(boolEntry("Apply Damage",
+                "Damage the player while they are inside a locked structure?",
+                () -> draftCommon.structureDamageEnabled, value -> draftCommon.structureDamageEnabled = value));
+        structureLock.add(floatEntry("Damage Amount",
+                "Amount of damage dealt per damage tick.",
+                () -> draftCommon.structureDamageAmount, value -> draftCommon.structureDamageAmount = value));
+        structureLock.add(intEntry("Damage Interval (ticks)",
+                "How often (in ticks) to deal damage while inside a locked structure.",
+                () -> draftCommon.structureDamageInterval, value -> draftCommon.structureDamageInterval = value));
+        common.add(structureLock);
 
         clientSections = client;
         commonSections = common;
@@ -277,8 +318,6 @@ public class ConfigEditorScreen extends Screen {
         copyClient(draftClient, Config.CLIENT);
         copyCommon(draftCommon, Config.COMMON);
         Config.save();
-        OptionalRecipeViewHooks.refreshAll();
-
         copyClient(Config.CLIENT, initialClient);
         copyCommon(Config.COMMON, initialCommon);
         buildSections();
@@ -302,9 +341,16 @@ public class ConfigEditorScreen extends Screen {
     }
 
     @Override
+    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+    }
+
+    @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+        EditorBlurController.enter(this.minecraft);
+
         guiGraphics.fill(0, 0, this.width, this.height, 0xE0101010);
         guiGraphics.drawCenteredString(this.font, this.title, this.width / 2, 10, 0xFFFFFF);
+        guiGraphics.fill(10, tabY - 2, this.width - 10, tabY - 1, 0xFF555555);
         drawTab(guiGraphics, tabX[0], tabY, tabW[0], TAB_HEIGHT, activeTab == 0, "Client");
         drawTab(guiGraphics, tabX[1], tabY, tabW[1], TAB_HEIGHT, activeTab == 1, "Common");
 
@@ -313,7 +359,7 @@ public class ConfigEditorScreen extends Screen {
         int contentLeft = 30;
         int contentRight = this.width - 30;
 
-        guiGraphics.fill(10, HEADER_HEIGHT, this.width - 10, HEADER_HEIGHT + 1, 0xFF555555);
+        guiGraphics.fill(10, HEADER_HEIGHT - 2, this.width - 10, HEADER_HEIGHT - 1, 0xFF555555);
 
         guiGraphics.enableScissor(contentLeft - 10, listTop, contentRight + 10, listBottom);
 
@@ -377,67 +423,32 @@ public class ConfigEditorScreen extends Screen {
         } else {
             hoveredEntryKey = null;
         }
+
+        if (itemPickerOverlay != null && !itemPickerOverlay.isVisible()) {
+            itemPickerOverlay = null;
+            itemPickerEntry = null;
+        }
+        if (itemPickerOverlay != null) {
+            itemPickerOverlay.render(guiGraphics, this.font, mouseX, mouseY);
+            if (!itemPickerOverlay.isVisible()) {
+                itemPickerOverlay = null;
+                itemPickerEntry = null;
+            }
+        }
     }
 
     private void drawTab(GuiGraphics guiGraphics, int x, int y, int width, int height, boolean active, String label) {
-        guiGraphics.fill(x, y, x + width, y + height, active ? 0x50FFCC00 : 0x25FFFFFF);
+        guiGraphics.fill(x, y, x + width, y + height, active ? 0x40FFCC00 : 0x15FFFFFF);
         guiGraphics.fill(x, y + height - 2, x + width, y + height, active ? 0xFFFFCC00 : 0xFF555555);
-        guiGraphics.drawCenteredString(this.font, label, x + width / 2, y + 4, active ? 0xFFFFFF : 0xBBBBBB);
+        guiGraphics.pose().pushPose();
+        guiGraphics.pose().translate(x + TAB_PAD, y + 4, 0);
+        guiGraphics.pose().scale(SMALL_SCALE, SMALL_SCALE, 1.0f);
+        guiGraphics.drawString(this.font, label, 0, 0, active ? 0xFFFFFF : 0x999999, false);
+        guiGraphics.pose().popPose();
     }
 
     private void renderTooltip(GuiGraphics guiGraphics, String text, int mouseX, int mouseY) {
-        guiGraphics.pose().pushPose();
-        guiGraphics.pose().translate(0, 0, 400);
-
-        List<String> lines = new ArrayList<>();
-        int maxWidth = 200;
-        String[] words = text.split(" ");
-        StringBuilder line = new StringBuilder();
-        for (String word : words) {
-            String candidate = line.isEmpty() ? word : line + " " + word;
-            if (!line.isEmpty() && this.font.width(candidate) > maxWidth) {
-                lines.add(line.toString());
-                line = new StringBuilder(word);
-            } else {
-                line = new StringBuilder(candidate);
-            }
-        }
-        if (!line.isEmpty()) {
-            lines.add(line.toString());
-        }
-
-        int tooltipW = 0;
-        for (String value : lines) {
-            tooltipW = Math.max(tooltipW, this.font.width(value));
-        }
-        tooltipW += 8;
-        int tooltipH = lines.size() * 10 + 6;
-
-        int tooltipX = mouseX + 12;
-        int tooltipY = mouseY - 4;
-        if (tooltipX + tooltipW + 2 > this.width - 4) {
-            tooltipX = mouseX - tooltipW - 4;
-        }
-        if (tooltipY + tooltipH + 2 > this.height - 4) {
-            tooltipY = this.height - tooltipH - 6;
-        }
-        if (tooltipX < 4) {
-            tooltipX = 4;
-        }
-        if (tooltipY < 4) {
-            tooltipY = 4;
-        }
-
-        guiGraphics.fill(tooltipX - 2, tooltipY - 2, tooltipX + tooltipW + 2, tooltipY + tooltipH + 2, 0xFF3D3D3D);
-        guiGraphics.fill(tooltipX, tooltipY, tooltipX + tooltipW, tooltipY + tooltipH, 0xFF0D0D0D);
-
-        int textY = tooltipY + 3;
-        for (String value : lines) {
-            guiGraphics.drawString(this.font, value, tooltipX + 4, textY, 0xCCCCCC, false);
-            textY += 10;
-        }
-
-        guiGraphics.pose().popPose();
+        guiGraphics.renderTooltip(this.font, this.font.split(Component.literal(text), 200), mouseX, mouseY);
     }
 
     private void renderConfigEntry(GuiGraphics guiGraphics, ConfigEntry entry, int left, int y, int right, int mouseX,
@@ -467,6 +478,19 @@ public class ConfigEditorScreen extends Screen {
                 }
                 guiGraphics.drawString(this.font, text, controlX, y + 8, 0xDDDDDD, false);
             }
+            case ITEM -> {
+                ItemStack stack = itemStackForId(entry.displayValue());
+                if (!stack.isEmpty()) {
+                    guiGraphics.renderItem(stack, controlX, y + 4);
+                }
+                int textX = stack.isEmpty() ? controlX : controlX + 20;
+                String text = entry.displayValue();
+                int textWidth = right - textX - 5;
+                if (textWidth > 0 && this.font.width(text) > textWidth) {
+                    text = this.font.plainSubstrByWidth(text, textWidth - 10) + "...";
+                }
+                guiGraphics.drawString(this.font, text, textX, y + 8, hovered ? 0xFFCC00 : 0xDDDDDD, false);
+            }
             case ITEM_LIST -> {
                 int count = entry.listGetter.get().size();
                 String text = "[" + count + " items] §7(click to edit)";
@@ -482,6 +506,17 @@ public class ConfigEditorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (itemPickerOverlay != null) {
+            if (itemPickerOverlay.mouseClicked(mouseX, mouseY)) {
+                if (!itemPickerOverlay.isVisible()) {
+                    dismissItemPicker();
+                }
+                return true;
+            }
+            dismissItemPicker();
+            return true;
+        }
+
         if (button == 0 && mouseY >= tabY && mouseY < tabY + TAB_HEIGHT) {
             for (int i = 0; i < tabX.length; i++) {
                 if (mouseX >= tabX[i] && mouseX < tabX[i] + tabW[i]) {
@@ -537,6 +572,14 @@ public class ConfigEditorScreen extends Screen {
             case INTEGER -> this.minecraft.setScreen(new ValueInputScreen(this, entry, true, false));
             case FLOAT -> this.minecraft.setScreen(new ValueInputScreen(this, entry, false, true));
             case STRING -> this.minecraft.setScreen(new ValueInputScreen(this, entry, false, false));
+            case ITEM -> {
+                itemPickerEntry = entry;
+                itemPickerOverlay = new SearchableItemList(itemId -> {
+                    entry.stringSetter.accept(itemId);
+                    dismissItemPicker();
+                });
+                itemPickerOverlay.show(this.width / 2, this.height / 2, this.width);
+            }
             case ITEM_LIST -> this.minecraft.setScreen(new ItemListEditorScreen(this, entry));
             case TAG_LIST -> this.minecraft.setScreen(new TagListEditorScreen(this, entry));
         }
@@ -562,6 +605,14 @@ public class ConfigEditorScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (itemPickerOverlay != null) {
+            boolean handled = itemPickerOverlay.mouseScrolled(mouseX, mouseY, verticalAmount);
+            if (!itemPickerOverlay.isVisible()) {
+                itemPickerOverlay = null;
+                itemPickerEntry = null;
+            }
+            return handled;
+        }
         scrollOffset = Math.max(0, Math.min(maxScroll, scrollOffset - verticalAmount * 16));
         return true;
     }
@@ -584,6 +635,19 @@ public class ConfigEditorScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (itemPickerOverlay != null) {
+            if (keyCode == 256) {
+                itemPickerOverlay = null;
+                itemPickerEntry = null;
+                return true;
+            }
+            boolean handled = itemPickerOverlay.keyPressed(keyCode);
+            if (!itemPickerOverlay.isVisible()) {
+                itemPickerOverlay = null;
+                itemPickerEntry = null;
+            }
+            return handled;
+        }
         if (keyCode == 256) {
             tryClose();
             return true;
@@ -602,6 +666,29 @@ public class ConfigEditorScreen extends Screen {
     }
 
     @Override
+    public boolean charTyped(char c, int modifiers) {
+        if (itemPickerOverlay != null) {
+            boolean handled = itemPickerOverlay.charTyped(c);
+            if (!itemPickerOverlay.isVisible()) {
+                itemPickerOverlay = null;
+                itemPickerEntry = null;
+            }
+            return handled;
+        }
+        return super.charTyped(c, modifiers);
+    }
+
+    private void dismissItemPicker() {
+        if (itemPickerOverlay != null) {
+            itemPickerOverlay.hide();
+        }
+        itemPickerOverlay = null;
+        itemPickerEntry = null;
+        hoveredEntryKey = null;
+        setFocused(null);
+    }
+
+    @Override
     public boolean isPauseScreen() {
         return true;
     }
@@ -617,7 +704,6 @@ public class ConfigEditorScreen extends Screen {
     }
 
     private static void copyClient(Config.Client from, Config.Client to) {
-        to.hideInJei = from.hideInJei;
         to.showTooltips = from.showTooltips;
         to.showIndividualTooltips = from.showIndividualTooltips;
         to.showStageName = from.showStageName;
@@ -688,8 +774,7 @@ public class ConfigEditorScreen extends Screen {
     }
 
     private static boolean clientsEqual(Config.Client a, Config.Client b) {
-        return a.hideInJei == b.hideInJei
-                && a.showTooltips == b.showTooltips
+        return a.showTooltips == b.showTooltips
                 && a.showIndividualTooltips == b.showIndividualTooltips
                 && a.showStageName == b.showStageName
                 && a.showAllUntilComplete == b.showAllUntilComplete
@@ -775,6 +860,11 @@ public class ConfigEditorScreen extends Screen {
                 getter::get, setter, null, null, null);
     }
 
+    private ConfigEntry itemEntry(String label, String tooltip, Supplier<String> getter, Consumer<String> setter) {
+        return new ConfigEntry(label, tooltip, ConfigType.ITEM, null, null,
+                getter::get, setter, null, null, null);
+    }
+
     private ConfigEntry itemListEntry(String label, String tooltip, Supplier<List<String>> getter, Consumer<List<String>> setter) {
         return new ConfigEntry(label, tooltip, ConfigType.ITEM_LIST, null, null, null, null, getter, setter, null);
     }
@@ -783,11 +873,24 @@ public class ConfigEditorScreen extends Screen {
         return new ConfigEntry(label, tooltip, ConfigType.TAG_LIST, null, null, null, null, getter, setter, null);
     }
 
+    private static ItemStack itemStackForId(String itemId) {
+        ResourceLocation id = ResourceLocation.tryParse(itemId);
+        if (id == null) {
+            return ItemStack.EMPTY;
+        }
+        Item item = ForgeRegistries.ITEMS.getValue(id);
+        if (item == null || item == Items.AIR) {
+            return ItemStack.EMPTY;
+        }
+        return new ItemStack(item);
+    }
+
     private enum ConfigType {
         BOOLEAN,
         INTEGER,
         FLOAT,
         STRING,
+        ITEM,
         ITEM_LIST,
         TAG_LIST
     }
@@ -899,6 +1002,10 @@ public class ConfigEditorScreen extends Screen {
         }
 
         @Override
+        public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+        }
+
+        @Override
         public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
             parent.render(guiGraphics, -1, -1, partialTick);
             guiGraphics.fill(0, 0, this.width, this.height, 0xA0000000);
@@ -960,6 +1067,7 @@ public class ConfigEditorScreen extends Screen {
                             }
                             itemOverlay = null;
                         });
+                        itemOverlay.setMultiSelect(true);
                         itemOverlay.show(this.width / 2, this.height / 2, this.width);
                     },
                     this.width / 2 - 50, this.height - 30, 100, 20));
@@ -975,6 +1083,10 @@ public class ConfigEditorScreen extends Screen {
         private void saveAndClose() {
             entry.listSetter.accept(new ArrayList<>(items));
             this.minecraft.setScreen(parent);
+        }
+
+        @Override
+        public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         }
 
         @Override
@@ -999,7 +1111,11 @@ public class ConfigEditorScreen extends Screen {
                     if (hovered) {
                         guiGraphics.fill(contentLeft, y, contentRight, y + ROW_HEIGHT, 0x20FFFFFF);
                     }
-                    guiGraphics.drawString(this.font, itemId, contentLeft + 8, y + 7, 0xCCCCCC, false);
+                    ItemStack itemStack = itemStackForId(itemId);
+                    if (!itemStack.isEmpty()) {
+                        guiGraphics.renderItem(itemStack, contentLeft + 2, y + 2);
+                    }
+                    guiGraphics.drawString(this.font, itemId, contentLeft + 24, y + 6, 0xCCCCCC, false);
                     int removeX = contentRight - 14;
                     guiGraphics.drawString(this.font, "×", removeX + 2, y + 6,
                             hovered ? 0xFF5555 : 0x888888, false);
@@ -1008,11 +1124,17 @@ public class ConfigEditorScreen extends Screen {
             }
 
             guiGraphics.disableScissor();
+            guiGraphics.fill(30, listBottom + 1, this.width - 30, listBottom + 2, 0xFF555555);
             super.render(guiGraphics, mouseX, mouseY, partialTick);
 
+            if (itemOverlay != null && !itemOverlay.isVisible()) {
+                itemOverlay = null;
+            }
             if (itemOverlay != null) {
-                guiGraphics.fill(0, 0, this.width, this.height, 0x80000000);
                 itemOverlay.render(guiGraphics, this.font, mouseX, mouseY);
+                if (!itemOverlay.isVisible()) {
+                    itemOverlay = null;
+                }
             }
         }
 
@@ -1020,6 +1142,9 @@ public class ConfigEditorScreen extends Screen {
         public boolean mouseClicked(double mouseX, double mouseY, int button) {
             if (itemOverlay != null) {
                 if (itemOverlay.mouseClicked(mouseX, mouseY)) {
+                    if (!itemOverlay.isVisible()) {
+                        itemOverlay = null;
+                    }
                     return true;
                 }
                 itemOverlay = null;
@@ -1055,7 +1180,11 @@ public class ConfigEditorScreen extends Screen {
         @Override
         public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
             if (itemOverlay != null) {
-                return itemOverlay.mouseScrolled(mouseX, mouseY, verticalAmount);
+                boolean handled = itemOverlay.mouseScrolled(mouseX, mouseY, verticalAmount);
+                if (!itemOverlay.isVisible()) {
+                    itemOverlay = null;
+                }
+                return handled;
             }
             scrollOffset = Math.max(0, Math.min(maxScroll, scrollOffset - verticalAmount * 16));
             return true;
@@ -1068,7 +1197,11 @@ public class ConfigEditorScreen extends Screen {
                     itemOverlay = null;
                     return true;
                 }
-                return itemOverlay.keyPressed(keyCode);
+                boolean handled = itemOverlay.keyPressed(keyCode);
+                if (!itemOverlay.isVisible()) {
+                    itemOverlay = null;
+                }
+                return handled;
             }
             if (keyCode == 256) {
                 saveAndClose();
@@ -1080,7 +1213,11 @@ public class ConfigEditorScreen extends Screen {
         @Override
         public boolean charTyped(char c, int modifiers) {
             if (itemOverlay != null) {
-                return itemOverlay.charTyped(c);
+                boolean handled = itemOverlay.charTyped(c);
+                if (!itemOverlay.isVisible()) {
+                    itemOverlay = null;
+                }
+                return handled;
             }
             return super.charTyped(c, modifiers);
         }
@@ -1148,6 +1285,10 @@ public class ConfigEditorScreen extends Screen {
         }
 
         @Override
+        public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+        }
+
+        @Override
         public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
             guiGraphics.fill(0, 0, this.width, this.height, 0xE0101010);
             guiGraphics.drawCenteredString(this.font, this.title, this.width / 2, 10, 0xFFFFFF);
@@ -1180,9 +1321,14 @@ public class ConfigEditorScreen extends Screen {
             guiGraphics.disableScissor();
             super.render(guiGraphics, mouseX, mouseY, partialTick);
 
+            if (tagOverlay != null && !tagOverlay.isVisible()) {
+                tagOverlay = null;
+            }
             if (tagOverlay != null) {
-                guiGraphics.fill(0, 0, this.width, this.height, 0x80000000);
                 tagOverlay.render(guiGraphics, this.font, mouseX, mouseY);
+                if (!tagOverlay.isVisible()) {
+                    tagOverlay = null;
+                }
             }
         }
 
@@ -1190,6 +1336,9 @@ public class ConfigEditorScreen extends Screen {
         public boolean mouseClicked(double mouseX, double mouseY, int button) {
             if (tagOverlay != null) {
                 if (tagOverlay.mouseClicked(mouseX, mouseY)) {
+                    if (!tagOverlay.isVisible()) {
+                        tagOverlay = null;
+                    }
                     return true;
                 }
                 tagOverlay = null;
@@ -1225,7 +1374,11 @@ public class ConfigEditorScreen extends Screen {
         @Override
         public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
             if (tagOverlay != null) {
-                return tagOverlay.mouseScrolled(mouseX, mouseY, verticalAmount);
+                boolean handled = tagOverlay.mouseScrolled(mouseX, mouseY, verticalAmount);
+                if (!tagOverlay.isVisible()) {
+                    tagOverlay = null;
+                }
+                return handled;
             }
             scrollOffset = Math.max(0, Math.min(maxScroll, scrollOffset - verticalAmount * 16));
             return true;
@@ -1238,7 +1391,11 @@ public class ConfigEditorScreen extends Screen {
                     tagOverlay = null;
                     return true;
                 }
-                return tagOverlay.keyPressed(keyCode);
+                boolean handled = tagOverlay.keyPressed(keyCode);
+                if (!tagOverlay.isVisible()) {
+                    tagOverlay = null;
+                }
+                return handled;
             }
             if (keyCode == 256) {
                 saveAndClose();
@@ -1250,7 +1407,11 @@ public class ConfigEditorScreen extends Screen {
         @Override
         public boolean charTyped(char c, int modifiers) {
             if (tagOverlay != null) {
-                return tagOverlay.charTyped(c);
+                boolean handled = tagOverlay.charTyped(c);
+                if (!tagOverlay.isVisible()) {
+                    tagOverlay = null;
+                }
+                return handled;
             }
             return super.charTyped(c, modifiers);
         }
